@@ -1,16 +1,23 @@
 {
   "name": "tla-connect",
   "version": "0.1.0",
-  "description": "Model-based testing with Apalache TLA+ model checker – generate ITF traces, replay against JS drivers, detect state divergence.",
+  "description": "Model-based testing with Apalache TLA+ model checker - generate ITF traces, replay against JS drivers, detect state divergence.",
   "type": "module",
   "sideEffects": false,
   "exports": {
-    ".": "./src/index.js"
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./src/index.js"
+    }
   },
+  "types": "./dist/index.d.ts",
   "files": [
-    "src"
+    "src",
+    "dist"
   ],
   "scripts": {
+    "build": "tsc",
+    "prepublishOnly": "tsc",
     "test": "bun test"
   },
   "keywords": [
@@ -32,5 +39,9 @@
   },
   "engines": {
     "node": ">=18"
+  },
+  "devDependencies": {
+    "@types/node": "^25.3.3",
+    "typescript": "^5.9.3"
   }
 }

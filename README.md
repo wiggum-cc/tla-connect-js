@@ -41,7 +41,7 @@ const { traces, outDir } = await generateTraces({
 console.log(`Generated ${traces.length} traces in ${outDir}`);
 ```
 
-Apalache exit code 12 (counterexample found) is treated as success — this is the normal output for reachability/coverage invariants like `NotIn_*` or `NoEdge_*`.
+Apalache exit code 12 (counterexample found) is treated as success – this is the normal output for reachability/coverage invariants like `NotIn_*` or `NoEdge_*`.
 
 ### 2. Write a Driver
 
@@ -72,7 +72,7 @@ function createCounterDriver() {
 }
 ```
 
-`extractState()` returns a subset of the spec's variables — only returned keys are compared (projection-based matching). This lets the spec carry internal bookkeeping variables without breaking the driver.
+`extractState()` returns a subset of the spec's variables – only returned keys are compared (projection-based matching). This lets the spec carry internal bookkeeping variables without breaking the driver.
 
 ### 3. Replay traces
 
@@ -202,7 +202,7 @@ TLA+ spec  →  Apalache  →  .itf.json traces  →  replay against JS Driver  
 ```
 
 1. Write a TLA+ spec with invariants named `NotIn_*` (reachability) or `NoEdge_*` (edge coverage)
-2. Apalache finds counterexamples that violate these invariants — each counterexample is an execution path
+2. Apalache finds counterexamples that violate these invariants – each counterexample is an execution path
 3. Replay those paths through your implementation
 4. If your implementation matches the spec at every step, the test passes
 

@@ -25,7 +25,7 @@ export function loadTrace(filePath) {
  *
  * @param {string} dirPath
  * @param {Object} [options]
- * @param {string} [options.glob] – glob pattern filter (unused, reserved for future)
+ * @param {string} [options.glob] - glob pattern filter (unused, reserved for future)
  * @returns {import("./itf.js").ItfTrace[]}
  */
 export function loadTracesFromDir(dirPath, options) {

@@ -13,11 +13,11 @@ import { loadTracesFromDir } from "./loader.js";
 
 /**
  * @typedef {Object} ApalacheConfig
- * @property {string} spec       – path to .tla file
- * @property {string} inv        – invariant name
+ * @property {string} spec       - path to .tla file
+ * @property {string} inv        - invariant name
  * @property {number} [maxLength=15]
  * @property {"check"|"simulate"} [mode="check"]
- * @property {string} [outDir]   – defaults to temp dir
+ * @property {string} [outDir]   - defaults to temp dir
  * @property {string} [apalacheBin="apalache-mc"]
  */
 
@@ -70,11 +70,11 @@ function spawnAsync(cmd, args) {
     const chunks = /** @type {Buffer[]} */ ([]);
     const errChunks = /** @type {Buffer[]} */ ([]);
 
-    child.stdout.on("data", (c) => chunks.push(c));
-    child.stderr.on("data", (c) => errChunks.push(c));
+    child.stdout.on("data", (/** @type {Buffer} */ c) => chunks.push(c));
+    child.stderr.on("data", (/** @type {Buffer} */ c) => errChunks.push(c));
 
     child.on("error", reject);
-    child.on("close", (exitCode) => {
+    child.on("close", (/** @type {number | null} */ exitCode) => {
       resolve({
         exitCode,
         stdout: Buffer.concat(chunks).toString("utf-8"),

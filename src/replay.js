@@ -9,15 +9,15 @@ import { stateDiff } from "./diff.js";
 
 /**
  * @typedef {Object} Step
- * @property {string} action  – the edge/action name
+ * @property {string} action  - the edge/action name
  * @property {Record<string, unknown>} state – full decoded TLA+ state
  * @property {number} index   – state index in trace
  */
 
 /**
  * @typedef {Object} Driver
- * @property {(step: Step) => void} step          – execute one action
- * @property {() => Record<string, unknown>} extractState – return current impl state
+ * @property {(step: Step) => void} step          - execute one action
+ * @property {() => Record<string, unknown>} extractState - return current impl state
  */
 
 /**
@@ -78,8 +78,8 @@ function valueEquals(a, b) {
   if (a instanceof Set && b instanceof Set) {
     if (a.size !== b.size) return false;
     // For sets of primitives; for complex values this is best-effort
-    const aArr = [...a].map(JSON.stringify).sort();
-    const bArr = [...b].map(JSON.stringify).sort();
+    const aArr = [...a].map((v) => JSON.stringify(v)).sort();
+    const bArr = [...b].map((v) => JSON.stringify(v)).sort();
     return aArr.every((v, i) => v === bArr[i]);
   }
 
