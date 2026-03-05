@@ -8,6 +8,30 @@
     ".": {
       "types": "./dist/index.d.ts",
       "default": "./src/index.js"
+    },
+    "./rpc": {
+      "types": "./dist/rpc/client.d.ts",
+      "default": "./src/rpc/client.js"
+    },
+    "./rpc/types": {
+      "types": "./dist/rpc/types.d.ts",
+      "default": "./src/rpc/types.js"
+    },
+    "./interactive": {
+      "types": "./dist/interactive.d.ts",
+      "default": "./src/interactive.js"
+    },
+    "./emitter": {
+      "types": "./dist/emitter.d.ts",
+      "default": "./src/emitter.js"
+    },
+    "./validator": {
+      "types": "./dist/validator.d.ts",
+      "default": "./src/validator.js"
+    },
+    "./errors": {
+      "types": "./dist/errors.d.ts",
+      "default": "./src/errors.js"
     }
   },
   "types": "./dist/index.d.ts",

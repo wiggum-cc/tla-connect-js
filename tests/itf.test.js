@@ -175,4 +175,117 @@ describe("parseItfTrace", () => {
     expect(trace.states[0].values["#meta"]).toBeUndefined();
     expect(trace.states[0].values.x).toBe(1);
   });
+
+  test("action resolved from #meta action field (highest priority)", () => {
+    const json = JSON.stringify({
+      "#meta": {},
+      vars: ["x", "edge"],
+      states: [
+        { "#meta": { index: 0, action: "MetaInit" }, x: 0, edge: "EdgeInit" },
+      ],
+    });
+
+    const trace = parseItfTrace(json);
+    expect(trace.states[0].action).toBe("MetaInit");
+    expect(trace.states[0].edge).toBe("MetaInit"); // alias
+  });
+
+  test("action resolved from #meta label field", () => {
+    const json = JSON.stringify({
+      "#meta": {},
+      vars: ["x"],
+      states: [
+        { "#meta": { index: 0, label: "LabelInit" }, x: 0 },
+      ],
+    });
+
+    const trace = parseItfTrace(json);
+    expect(trace.states[0].action).toBe("LabelInit");
+  });
+
+  test("action resolved from #meta transition field", () => {
+    const json = JSON.stringify({
+      "#meta": {},
+      vars: ["x"],
+      states: [
+        { "#meta": { index: 0, transition: "TransInit" }, x: 0 },
+      ],
+    });
+
+    const trace = parseItfTrace(json);
+    expect(trace.states[0].action).toBe("TransInit");
+  });
+
+  test("action resolved from action_taken field (2nd priority)", () => {
+    const json = JSON.stringify({
+      "#meta": {},
+      vars: ["x", "action_taken"],
+      states: [
+        { "#meta": { index: 0 }, x: 0, action_taken: "ActionTakenInit" },
+      ],
+    });
+
+    const trace = parseItfTrace(json);
+    expect(trace.states[0].action).toBe("ActionTakenInit");
+  });
+
+  test("action falls back to edge field (3rd priority)", () => {
+    const json = JSON.stringify({
+      "#meta": {},
+      vars: ["x", "edge"],
+      states: [
+        { "#meta": { index: 0 }, x: 0, edge: "EdgeInit" },
+      ],
+    });
+
+    const trace = parseItfTrace(json);
+    expect(trace.states[0].action).toBe("EdgeInit");
+  });
+
+  test("nondetPicks extracted from state", () => {
+    const json = JSON.stringify({
+      "#meta": {},
+      vars: ["x", "nondet_picks"],
+      states: [
+        {
+          "#meta": { index: 0 },
+          x: 0,
+          edge: "Init",
+          nondet_picks: { choice: { "#bigint": "3" } },
+        },
+      ],
+    });
+
+    const trace = parseItfTrace(json);
+    expect(trace.states[0].nondetPicks).toEqual({ choice: 3 });
+  });
+
+  test("nondetPicks absent when nondet_picks not in state", () => {
+    const json = JSON.stringify({
+      "#meta": {},
+      vars: ["x"],
+      states: [
+        { "#meta": { index: 0 }, x: 0, edge: "Init" },
+      ],
+    });
+
+    const trace = parseItfTrace(json);
+    expect(trace.states[0].nondetPicks).toBeUndefined();
+  });
+
+  test("action property equals edge property (backward compat)", () => {
+    const json = JSON.stringify({
+      "#meta": {},
+      vars: ["x", "edge"],
+      states: [
+        { "#meta": { index: 0 }, x: 0, edge: "Init" },
+        { "#meta": { index: 1 }, x: 1, edge: "Step" },
+      ],
+    });
+
+    const trace = parseItfTrace(json);
+    for (const state of trace.states) {
+      expect(state.action).toBe(state.edge);
+    }
+  });
 });

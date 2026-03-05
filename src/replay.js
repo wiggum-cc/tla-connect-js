@@ -6,18 +6,29 @@
  */
 
 import { stateDiff } from "./diff.js";
+import { statesMatch, projectState } from "./_compare.js";
+import { parseItfTrace } from "./itf.js";
 
 /**
  * @typedef {Object} Step
  * @property {string} action  - the edge/action name
  * @property {Record<string, unknown>} state – full decoded TLA+ state
  * @property {number} index   – state index in trace
+ * @property {Record<string, unknown>} [nondetPicks] - nondeterministic choices
  */
 
 /**
  * @typedef {Object} Driver
  * @property {(step: Step) => void} step          - execute one action
  * @property {() => Record<string, unknown>} extractState - return current impl state
+ */
+
+/**
+ * @typedef {Object} ReplayProgress
+ * @property {number} traceIndex
+ * @property {number} traceCount
+ * @property {number} statesCompleted
+ * @property {number} statesTotal
  */
 
 /**
@@ -48,84 +59,6 @@ export class StateMismatchError extends Error {
 }
 
 /**
- * Compare implementation state against spec state.
- * Only keys present in implState are compared (projection).
- *
- * @param {Record<string, unknown>} specState
- * @param {Record<string, unknown>} implState
- * @returns {boolean}
- */
-function statesMatch(specState, implState) {
-  for (const key of Object.keys(implState)) {
-    if (!(key in specState)) return false;
-    if (!valueEquals(specState[key], implState[key])) return false;
-  }
-  return true;
-}
-
-/**
- * Deep equality for decoded ITF values.
- * @param {unknown} a
- * @param {unknown} b
- * @returns {boolean}
- */
-function valueEquals(a, b) {
-  if (a === b) return true;
-  if (a === null || b === null || a === undefined || b === undefined) return false;
-  if (typeof a !== typeof b) return false;
-  if (typeof a === "bigint") return a === b;
-
-  if (a instanceof Set && b instanceof Set) {
-    if (a.size !== b.size) return false;
-    // For sets of primitives; for complex values this is best-effort
-    const aArr = [...a].map((v) => JSON.stringify(v)).sort();
-    const bArr = [...b].map((v) => JSON.stringify(v)).sort();
-    return aArr.every((v, i) => v === bArr[i]);
-  }
-
-  if (a instanceof Map && b instanceof Map) {
-    if (a.size !== b.size) return false;
-    for (const [k, v] of a) {
-      if (!b.has(k) || !valueEquals(v, b.get(k))) return false;
-    }
-    return true;
-  }
-
-  if (Array.isArray(a) && Array.isArray(b)) {
-    if (a.length !== b.length) return false;
-    return a.every((v, i) => valueEquals(v, b[i]));
-  }
-
-  if (typeof a === "object" && typeof b === "object") {
-    const aObj = /** @type {Record<string, unknown>} */ (a);
-    const bObj = /** @type {Record<string, unknown>} */ (b);
-    const aKeys = Object.keys(aObj);
-    const bKeys = Object.keys(bObj);
-    if (aKeys.length !== bKeys.length) return false;
-    return aKeys.every((k) => k in bObj && valueEquals(aObj[k], bObj[k]));
-  }
-
-  return false;
-}
-
-/**
- * Project spec state to only include keys from implState.
- * @param {Record<string, unknown>} specState
- * @param {string[]} keys
- * @returns {Record<string, unknown>}
- */
-function projectState(specState, keys) {
-  /** @type {Record<string, unknown>} */
-  const projected = {};
-  for (const key of keys) {
-    if (key in specState) {
-      projected[key] = specState[key];
-    }
-  }
-  return projected;
-}
-
-/**
  * Replay a single parsed trace against a driver.
  *
  * @param {() => Driver} driverFactory
@@ -138,8 +71,11 @@ export function replayTrace(driverFactory, trace, traceIndex = 0) {
   const driver = driverFactory();
 
   for (const state of trace.states) {
-    const action = state.edge;
-    driver.step({ action, state: state.values, index: state.index });
+    const action = state.action ?? state.edge;
+    /** @type {Step} */
+    const step = { action, state: state.values, index: state.index };
+    if (state.nondetPicks) step.nondetPicks = state.nondetPicks;
+    driver.step(step);
 
     const implState = driver.extractState();
     const implKeys = Object.keys(implState);
@@ -182,4 +118,55 @@ export function replayTraces(driverFactory, traces) {
     states: totalStates,
     duration: performance.now() - start,
   };
+}
+
+/**
+ * Replay all traces with progress callback.
+ *
+ * @param {() => Driver} driverFactory
+ * @param {import("./itf.js").ItfTrace[]} traces
+ * @param {(progress: ReplayProgress) => void} progressFn
+ * @returns {{ traces: number, states: number, duration: number }}
+ */
+export function replayTracesWithProgress(driverFactory, traces, progressFn) {
+  const start = performance.now();
+  let totalStates = 0;
+  const totalStatesAll = traces.reduce((sum, t) => sum + t.states.length, 0);
+
+  for (let i = 0; i < traces.length; i++) {
+    progressFn({
+      traceIndex: i,
+      traceCount: traces.length,
+      statesCompleted: totalStates,
+      statesTotal: totalStatesAll,
+    });
+    const result = replayTrace(driverFactory, traces[i], i);
+    totalStates += result.states;
+  }
+
+  progressFn({
+    traceIndex: traces.length,
+    traceCount: traces.length,
+    statesCompleted: totalStates,
+    statesTotal: totalStatesAll,
+  });
+
+  return {
+    traces: traces.length,
+    states: totalStates,
+    duration: performance.now() - start,
+  };
+}
+
+/**
+ * Parse an ITF JSON string and replay against a driver in one call.
+ *
+ * @param {() => Driver} driverFactory
+ * @param {string} json - ITF trace JSON string
+ * @param {number} [traceIndex=0]
+ * @returns {{ states: number, duration: number }}
+ */
+export function replayTraceStr(driverFactory, json, traceIndex = 0) {
+  const trace = parseItfTrace(json);
+  return replayTrace(driverFactory, trace, traceIndex);
 }

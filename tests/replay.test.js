@@ -1,5 +1,5 @@
 import { test, expect, describe } from "bun:test";
-import { replayTrace, replayTraces, StateMismatchError } from "../src/replay.js";
+import { replayTrace, replayTraces, replayTracesWithProgress, replayTraceStr, StateMismatchError } from "../src/replay.js";
 
 /** Helper to build a trace from state list */
 function makeTrace(states) {
@@ -8,8 +8,10 @@ function makeTrace(states) {
     vars: Object.keys(states[0]?.values ?? {}),
     states: states.map((s, i) => ({
       index: i,
+      action: s.action ?? s.edge ?? (i === 0 ? "Init" : "unknown"),
       edge: s.edge ?? (i === 0 ? "Init" : "unknown"),
       values: s.values,
+      ...(s.nondetPicks ? { nondetPicks: s.nondetPicks } : {}),
     })),
   };
 }
@@ -224,5 +226,101 @@ describe("replayTraces", () => {
 
     replayTraces(factory, [trace, trace, trace]);
     expect(creations).toBe(3);
+  });
+});
+
+describe("replayTrace – nondetPicks", () => {
+  test("nondetPicks passed to driver step", () => {
+    const trace = makeTrace([
+      { edge: "Init", values: { x: 0 } },
+      { edge: "Pick", values: { x: 3 }, nondetPicks: { choice: 3 } },
+    ]);
+
+    const picks = [];
+    const factory = () => {
+      let x = 0;
+      return {
+        step({ action, nondetPicks }) {
+          picks.push(nondetPicks);
+          if (action === "Pick") x = nondetPicks?.choice ?? 0;
+        },
+        extractState() {
+          return { x };
+        },
+      };
+    };
+
+    replayTrace(factory, trace);
+    expect(picks[0]).toBeUndefined();
+    expect(picks[1]).toEqual({ choice: 3 });
+  });
+});
+
+describe("replayTracesWithProgress", () => {
+  test("calls progress callback before each trace and after completion", () => {
+    const trace1 = makeTrace([
+      { edge: "Init", values: { n: 0 } },
+      { edge: "Inc", values: { n: 1 } },
+    ]);
+    const trace2 = makeTrace([
+      { edge: "Init", values: { n: 0 } },
+    ]);
+
+    const factory = () => {
+      let n = 0;
+      return {
+        step({ action }) {
+          if (action === "Init") n = 0;
+          else n++;
+        },
+        extractState() {
+          return { n };
+        },
+      };
+    };
+
+    const events = [];
+    const result = replayTracesWithProgress(factory, [trace1, trace2], (p) => {
+      events.push({ ...p });
+    });
+
+    expect(result.traces).toBe(2);
+    expect(result.states).toBe(3);
+    // Before trace 0
+    expect(events[0]).toEqual({ traceIndex: 0, traceCount: 2, statesCompleted: 0, statesTotal: 3 });
+    // Before trace 1
+    expect(events[1]).toEqual({ traceIndex: 1, traceCount: 2, statesCompleted: 2, statesTotal: 3 });
+    // After all done
+    expect(events[2]).toEqual({ traceIndex: 2, traceCount: 2, statesCompleted: 3, statesTotal: 3 });
+  });
+});
+
+describe("replayTraceStr", () => {
+  test("parses JSON string and replays", () => {
+    const json = JSON.stringify({
+      "#meta": {},
+      vars: ["counter"],
+      states: [
+        { "#meta": { index: 0 }, counter: { "#bigint": "0" }, edge: "Init" },
+        { "#meta": { index: 1 }, counter: { "#bigint": "1" }, edge: "Inc" },
+      ],
+    });
+
+    const factory = () => {
+      let counter = 0;
+      return {
+        step({ action }) {
+          if (action === "Init") counter = 0;
+          else if (action === "Inc") counter++;
+        },
+        extractState() {
+          return { counter };
+        },
+      };
+    };
+
+    const result = replayTraceStr(factory, json);
+    expect(result.states).toBe(2);
+    expect(result.duration).toBeGreaterThanOrEqual(0);
   });
 });

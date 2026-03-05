@@ -64,8 +64,10 @@ export function decodeItfValue(raw) {
 /**
  * @typedef {Object} ItfState
  * @property {number} index
- * @property {string} edge
+ * @property {string} action - resolved action name (priority: #meta → action_taken → edge → default)
+ * @property {string} edge   - alias for backward compatibility
  * @property {Record<string, unknown>} values
+ * @property {Record<string, unknown>} [nondetPicks] - nondeterministic choices if present
  */
 
 /**
@@ -96,9 +98,34 @@ export function parseItfTrace(json) {
       values[key] = decodeItfValue(val);
     }
 
-    const edge = typeof values.edge === "string" ? values.edge : (i === 0 ? "Init" : "unknown");
+    // Resolve action with priority:
+    // 1. ITF #meta fields (action, label, transition)
+    // 2. action_taken field in state values
+    // 3. edge field in state values
+    // 4. default ("Init" for index 0, "unknown" otherwise)
+    const metaAction = stateMeta.action ?? stateMeta.label ?? stateMeta.transition;
+    const action = typeof metaAction === "string"
+      ? metaAction
+      : typeof values.action_taken === "string"
+        ? values.action_taken
+        : typeof values.edge === "string"
+          ? values.edge
+          : (i === 0 ? "Init" : "unknown");
 
-    return { index, edge, values };
+    // Keep edge as alias for backward compat
+    const edge = action;
+
+    // Extract nondetPicks from state if present
+    /** @type {Record<string, unknown> | undefined} */
+    let nondetPicks;
+    if (values.nondet_picks != null && typeof values.nondet_picks === "object" && !Array.isArray(values.nondet_picks)) {
+      nondetPicks = /** @type {Record<string, unknown>} */ (values.nondet_picks);
+    }
+
+    /** @type {import("./itf.js").ItfState} */
+    const state = { index, action, edge, values };
+    if (nondetPicks) state.nondetPicks = nondetPicks;
+    return state;
   });
 
   return { meta, vars, states };

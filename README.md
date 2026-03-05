@@ -1,8 +1,18 @@
 # tla-connect
 
-Model-based testing with [Apalache](https://apalache-mc.org/) TLA+ model checker for JavaScript.
+TLA+/Apalache integration for model-based testing in JavaScript.
 
-Write a TLA+ spec, let Apalache generate counterexample traces, then replay those traces against your JavaScript implementation to verify correctness.
+## Overview
+
+`tla-connect` verifies that your JavaScript implementation matches a [TLA+](https://lamport.azurewebsites.net/tla/tla.html) specification using [Apalache](https://apalache.informal.systems/). It enables:
+
+- **Trace replay**: Generate execution traces from TLA+ specs and replay them against your code
+- **State comparison**: Detect where implementation diverges from the spec with field-level diffs
+- **ITF decoding**: Parse Apalache's [Informal Trace Format](https://apalache-mc.org/docs/adr/015adr-trace.html) into native JS types
+
+```
+TLA+ spec  ->  Apalache  ->  ITF traces  ->  replay against JS Driver  ->  spec/impl match
+```
 
 ## Install
 
@@ -10,201 +20,124 @@ Write a TLA+ spec, let Apalache generate counterexample traces, then replay thos
 npm install tla-connect
 ```
 
-Apalache must be available on your `PATH` (or pass a custom path via `apalacheBin`). See the [Apalache installation guide](https://apalache-mc.org/docs/apalache/installation/index.html).
+[Apalache](https://apalache-mc.org/docs/apalache/installation/index.html) must be on your `PATH` (or pass a custom path via `apalacheBin`).
 
-## Quick start
+## Quick Start
 
-```js
-import {
-  generateTraces,
-  loadTrace,
-  loadTracesFromDir,
-  replayTrace,
-  replayTraces,
-  parseItfTrace,
-  decodeItfValue,
-  stateDiff,
-  StateMismatchError,
-} from "tla-connect";
-```
-
-### 1. Generate traces from a TLA+ spec
+Define a Driver that bridges the spec and your implementation:
 
 ```js
-const { traces, outDir } = await generateTraces({
-  spec: "./specs/Counter.tla",
-  inv: "NotIn_Overflow",  // invariant to violate (generates counterexample)
-  maxLength: 15,          // max trace length (default: 15)
-  mode: "check",          // "check" or "simulate" (default: "check")
-});
+import { generateTraces, replayTraces } from "tla-connect";
 
-console.log(`Generated ${traces.length} traces in ${outDir}`);
-```
-
-Apalache exit code 12 (counterexample found) is treated as success – this is the normal output for reachability/coverage invariants like `NotIn_*` or `NoEdge_*`.
-
-### 2. Write a Driver
-
-A Driver executes spec actions against your implementation and reports its state:
-
-```js
-function createCounterDriver() {
-  let count = 0;
-
+// Driver maps spec actions to implementation operations
+function createDriver() {
+  let counter = 0;
   return {
-    step({ action, state, index }) {
+    step({ action }) {
       switch (action) {
-        case "Init":
-          count = 0;
-          break;
-        case "Increment":
-          count++;
-          break;
-        case "Decrement":
-          count--;
-          break;
+        case "Init": counter = 0; break;
+        case "Increment": counter++; break;
+        case "Decrement": counter--; break;
       }
     },
     extractState() {
-      return { count };
+      return { counter };
     },
   };
 }
+
+// Generate traces from spec, replay against driver
+const { traces } = await generateTraces({
+  spec: "specs/Counter.tla",
+  inv: "TraceComplete",
+});
+
+const stats = replayTraces(createDriver, traces);
+console.log(`${stats.traces} traces, ${stats.states} states (${stats.duration}ms)`);
 ```
 
-`extractState()` returns a subset of the spec's variables – only returned keys are compared (projection-based matching). This lets the spec carry internal bookkeeping variables without breaking the driver.
+`extractState()` uses projection-based matching: only keys the driver returns are compared, so the spec can carry internal variables without affecting the test.
 
-### 3. Replay traces
-
-```js
-// Single trace
-const result = replayTrace(createCounterDriver, traces[0]);
-console.log(`Replayed ${result.states} states in ${result.duration}ms`);
-
-// All traces at once
-const stats = replayTraces(createCounterDriver, traces);
-console.log(`${stats.traces} traces, ${stats.states} states, ${stats.duration}ms`);
-```
-
-A fresh driver is created per trace via the factory function.
-
-If the implementation state diverges from the spec state, a `StateMismatchError` is thrown with a human-readable diff:
+On mismatch, a `StateMismatchError` is thrown:
 
 ```
-StateMismatchError: State mismatch at trace[0] state[3] after "Increment":
-- count: 4
-+ count: 3
-```
-
-### 4. Load traces from disk
-
-```js
-// Single file
-const trace = loadTrace("./traces/Counter_NotIn_Overflow.itf.json");
-
-// All .itf.json files in a directory (recursive)
-const traces = loadTracesFromDir("./traces/");
-```
-
-### 5. Parse ITF manually
-
-```js
-const json = fs.readFileSync("trace.itf.json", "utf-8");
-const trace = parseItfTrace(json);
-
-for (const state of trace.states) {
-  console.log(state.index, state.edge, state.values);
-}
-```
-
-### 6. Decode Apalache ITF values
-
-Apalache encodes TLA+ types as JSON objects. `decodeItfValue` converts them to native JS types:
-
-| ITF encoding | JS type |
-|---|---|
-| `{"#bigint": "42"}` | `42` (Number, or BigInt if unsafe) |
-| `{"#set": [1, 2]}` | `Set([1, 2])` |
-| `{"#tup": [1, "a"]}` | `[1, "a"]` |
-| `{"#map": [["k", "v"]]}` | `Map([["k", "v"]])` |
-
-```js
-decodeItfValue({ "#bigint": "42" });           // 42
-decodeItfValue({ "#set": [1, 2, 3] });         // Set {1, 2, 3}
-decodeItfValue({ "#map": [["a", 1]] });        // Map {"a" => 1}
-decodeItfValue({ "#bigint": "9007199254740993" }); // 9007199254740993n (BigInt)
-```
-
-### 7. State diffs
-
-```js
-const diff = stateDiff(
-  { count: 4, active: true },
-  { count: 3, active: true },
-);
-// Output:
-//   active: true
-// - count: 4
-// + count: 3
+State mismatch at trace[0] state[3] after "Increment":
+- counter: 4
++ counter: 3
 ```
 
 ## API
 
-### `generateTraces(config): Promise<{ traces, outDir }>`
+### Trace generation
 
-Spawn Apalache to generate ITF counterexample traces.
+#### `generateTraces(config): Promise<{ traces, outDir }>`
+
+Run Apalache to generate execution traces from a TLA+ spec.
 
 | Option | Type | Default | Description |
 |---|---|---|---|
 | `spec` | `string` | required | Path to `.tla` file |
-| `inv` | `string` | required | Invariant name to check |
+| `inv` | `string` | required | Invariant name |
 | `maxLength` | `number` | `15` | Max trace length |
 | `mode` | `"check" \| "simulate"` | `"check"` | Apalache mode |
-| `outDir` | `string` | temp dir | Output directory for traces |
-| `apalacheBin` | `string` | `"apalache-mc"` | Path to Apalache binary |
+| `outDir` | `string` | temp dir | Output directory |
+| `apalacheBin` | `string` | `"apalache-mc"` | Binary path |
 
-### `replayTrace(driverFactory, trace, traceIndex?): { states, duration }`
+### Trace replay
+
+#### `replayTrace(driverFactory, trace, traceIndex?): { states, duration }`
 
 Replay a single trace. Throws `StateMismatchError` on divergence.
 
-### `replayTraces(driverFactory, traces): { traces, states, duration }`
+#### `replayTraces(driverFactory, traces): { traces, states, duration }`
 
-Replay all traces. Creates a fresh driver per trace.
+Replay all traces. Fresh driver per trace.
 
-### `loadTrace(filePath): ItfTrace`
+### Trace loading
+
+#### `loadTrace(filePath): ItfTrace`
 
 Load and parse a single `.itf.json` file.
 
-### `loadTracesFromDir(dirPath): ItfTrace[]`
+#### `loadTracesFromDir(dirPath): ItfTrace[]`
 
-Recursively find and parse all `.itf.json` files, sorted by path.
+Recursively load all `.itf.json` files, sorted by path.
 
-### `parseItfTrace(json): ItfTrace`
+### ITF parsing
 
-Parse an ITF JSON string into a structured trace.
+#### `parseItfTrace(json): ItfTrace`
 
-### `decodeItfValue(raw): unknown`
+Parse an ITF JSON string.
 
-Decode an Apalache ITF value to a native JS type.
+#### `decodeItfValue(raw): unknown`
 
-### `stateDiff(expected, actual): string`
+Decode Apalache ITF values to native JS types:
 
-Human-readable field-by-field diff between two state objects.
+| ITF | JS |
+|---|---|
+| `{"#bigint": "42"}` | `42` / `BigInt` |
+| `{"#set": [...]}` | `Set` |
+| `{"#tup": [...]}` | `Array` |
+| `{"#map": [[k,v]...]}` | `Map` |
 
-### `StateMismatchError`
+### Utilities
 
-Thrown when spec and implementation states diverge. Properties: `traceIndex`, `stateIndex`, `action`, `expected`, `actual`, `diff`.
+#### `stateDiff(expected, actual): string`
 
-## Typical MBT workflow
+Field-by-field diff between two state objects.
 
-```
-TLA+ spec  →  Apalache  →  .itf.json traces  →  replay against JS Driver  →  pass/fail
-```
+#### `StateMismatchError`
 
-1. Write a TLA+ spec with invariants named `NotIn_*` (reachability) or `NoEdge_*` (edge coverage)
-2. Apalache finds counterexamples that violate these invariants – each counterexample is an execution path
-3. Replay those paths through your implementation
-4. If your implementation matches the spec at every step, the test passes
+Properties: `traceIndex`, `stateIndex`, `action`, `expected`, `actual`, `diff`.
+
+## Requirements
+
+- Node.js 18+ (or Bun)
+- Apalache on `PATH`
+
+## See also
+
+- [tla-connect (Rust)](https://github.com/wiggum-cc/tla-connect-rs) - Rust version with additional approaches: interactive RPC symbolic testing and post-hoc trace validation
 
 ## License
 
